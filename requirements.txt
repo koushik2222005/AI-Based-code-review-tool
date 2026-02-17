@@ -1,0 +1,4 @@
+Flask             # The web framework
+Flask-CORS        # Essential for allowing the frontend to talk to the backend on different ports
+google-genai      # The official Google SDK for the Gemini API
+python-dotenv     # To load the GEMINI_API_KEY from a local .env file securely

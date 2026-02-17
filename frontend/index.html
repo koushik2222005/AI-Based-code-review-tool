@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>AI Code Review Tool</title>
+    <link rel="stylesheet" href="style.css">
+    
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/require.js/2.3.6/require.min.js"></script>
+    <script>
+        // Configure require.js to load Monaco
+        require.config({ paths: { 'vs': 'https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.46.0/min/vs' }});
+        window.MonacoEnvironment = { getWorkerUrl: (_, label) => require.toUrl('vs/base/worker/workerMain.js') };
+    </script>
+</head>
+<body>
+
+    <header>
+        <h1>🤖 AI Code Reviewer</h1>
+        <p>Analyze code, detect bugs, suggest improvements, and get refactored code.</p>
+    </header>
+
+    <div class="container">
+        <div class="input-panel">
+            <h2>Code Input</h2>
+            <div id="editor-container" style="height: 400px;"></div>
+            <div class="controls">
+                <select id="language-select">
+                    <option value="python">Python</option>
+                    <option value="javascript">JavaScript</option>
+                    <option value="typescript">TypeScript</option>
+                    <option value="java">Java</option>
+                    <option value="csharp">C#</option>
+                    <option value="c">C</option>
+                    <option value="cpp">C++</option>
+                    <option value="go">Go</option>
+                    <option value="rust">Rust</option>
+                </select>
+                <button id="review-button">Start AI Review</button>
+            </div>
+        </div>
+
+        <div class="output-panel">
+            <h2>AI Review & Refactoring</h2>
+            <div id="review-output">
+                <p>Submit your code and click 'Start AI Review' to see results here.</p>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let editor;
+        const BACKEND_URL = 'http://127.0.0.1:5000/review';
+
+        // 1. Load the Monaco Editor instance
+        require(['vs/editor/editor.main'], function() {
+            editor = monaco.editor.create(document.getElementById('editor-container'), {
+                // Initial example code
+                value: 'def calculate_area(radius):\n  # Bug: Pi is hardcoded and low precision\n  result = 3.14 * radius * radius\n  return result',
+                language: 'python',
+                theme: 'vs-dark',
+                automaticLayout: true
+            });
+            
+            // Update editor language when the select box changes
+            document.getElementById('language-select').addEventListener('change', (event) => {
+                monaco.editor.setModelLanguage(editor.getModel(), event.target.value);
+            });
+        });
+
+        // 2. Main Review Button Logic
+        document.getElementById('review-button').addEventListener('click', async () => {
+            const code = editor.getValue();
+            const language = document.getElementById('language-select').value;
+            const outputDiv = document.getElementById('review-output');
+            const reviewButton = document.getElementById('review-button');
+
+            reviewButton.disabled = true;
+            reviewButton.textContent = 'Analyzing... (Max 30 seconds)';
+            outputDiv.innerHTML = '<p>Sending code to AI...</p>';
+
+            try {
+                // Send the code to the Flask backend
+                const response = await fetch(BACKEND_URL, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ code: code, language: language })
+                });
+
+                if (!response.ok) {
+                    const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
+                    outputDiv.innerHTML = `<h3>Server Error (${response.status})</h3><p>${errorData.error || response.statusText}</p>`;
+                    return;
+                }
+
+                const data = await response.json();
+                
+                // Display the results by converting the AI's Markdown output to HTML
+                outputDiv.innerHTML = formatMarkdown(data.review_markdown);
+
+            } catch (error) {
+                // Handle network or CORS errors
+                outputDiv.innerHTML = `
+                    <h3>❌ Connection Error</h3>
+                    <p>Could not connect to the Flask backend on <code>${BACKEND_URL}</code>.</p>
+                    <p><strong>Please check:</strong></p>
+                    <ul>
+                        <li>Is your backend running? (e.g., <code>python app.py</code>)</li>
+                        <li>Is the terminal showing errors? (e.g., API key missing)</li>
+                    </ul>
+                    <p>Error details: ${error.message}</p>
+                `;
+            } finally {
+                reviewButton.disabled = false;
+                reviewButton.textContent = 'Start AI Review';
+            }
+        });
+
+        // 3. Simple Markdown to HTML Converter
+        // This function parses the structured Markdown output from the AI model
+        function formatMarkdown(markdown) {
+            let html = markdown;
+
+            // 1. Code Blocks (Most important for refactored code)
+            html = html.replace(/```(\w+)?\s*([\s\S]*?)```/g, function(match, lang, code) {
+                // We use lang if present, but the main goal is wrapping in <pre><code>
+                return '<pre class="code-block"><code>' + code.trim() + '</code></pre>';
+            });
+
+            // 2. Headers (for Issues, Suggestions, Refactored Code titles)
+            // Use positive lookahead/behind to prevent matching code block content
+            html = html.replace(/^(###\s*(.*))$/gm, '<h3>$2</h3>');
+            html = html.replace(/^(##\s*(.*))$/gm, '<h2>$2</h2>');
+
+            // 3. Lists
+            html = html.replace(/^\*\s*(.*)$/gm, '<li>$1</li>');
+            // Wrap contiguous <li> elements in <ul>
+            html = html.replace(/((<li>[\s\S]*?<\/li>)+)/g, '<ul>$1</ul>');
+
+            // 4. Bold text
+            html = html.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+
+            // 5. Replace double newlines with paragraph tags for remaining text
+            html = html.split('\n\n').map(p => {
+                // Ignore lines already converted to headers, lists, or code blocks
+                if (p.startsWith('<h') || p.startsWith('<ul') || p.startsWith('<pre') || p.startsWith('<li>')) {
+                    return p;
+                }
+                return `<p>${p.trim().replace(/\n/g, '<br>')}</p>`;
+            }).join('');
+            
+            // Clean up empty lines created by intermediate steps
+            html = html.replace(/(<p><\/p>)+/g, '');
+
+
+            return html;
+        }
+    </script>
+</body>
+</html>
