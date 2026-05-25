@@ -1,8 +1,0 @@
-Node js app deploy process
-
-install enviroinment (nodejs)
-install dependencies manager(NPM install -->test.json-->npm repo)
-run your application(
-
-
-process manager and reverse proxy and how to deploy nodejs application is todays task
